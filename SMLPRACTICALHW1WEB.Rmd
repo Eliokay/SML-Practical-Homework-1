@@ -1,0 +1,234 @@
+---
+title: "SML Practical H/W"
+author: "Eloho Okoloko"
+date: "2025-04-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Practical Homework 1: Youth Drug use
+
+#Load Package
+```{r}
+library(tree)
+library(randomForest)
+library(gbm)
+```
+#Load dataset
+```{r}
+load("C:/Users/eokoloko/Downloads/youth_data.Rdata")
+```
+#EDA
+```{r}
+df
+youth_experience_cols
+substance_cols
+demographic_cols
+df_clean <- df
+```
+#sum(is.na(df))
+#df_clean <- df[rowSums(is.na(df)) / ncol(df) < 0.2, ]
+#sum(is.na(df_clean))
+
+#Problem 1: Binary Classsifiation - Predicting if a youth has or has not used cigarettes before.
+```{r}
+table(df[["MRJFLAG"]]) #This will be the target variable
+set.seed(1)
+binary_train_ind <- sample(1:nrow(df_clean), size= 0.8*nrow(df_clean),replace = FALSE)
+binary_train <- df_clean[binary_train_ind, ]
+binary_test <- df_clean[-binary_train_ind, ]
+nrow(binary_train)/nrow(df_clean)
+nrow(binary_test)/nrow(df_clean)
+
+binary_tree <- tree(MRJFLAG ~ . - IRMJAGE - IRMJFY -MRJMDAYS -MRJYDAYS - IRMJFM, data = df_clean)
+summary(binary_tree)
+
+
+plot(binary_tree)
+text(binary_tree, pretty = 0)
+
+binary_tree.pred <- predict(binary_tree, binary_test, type = "class")
+summary(binary_tree.pred)
+table(binary_tree.pred, binary_test$MRJFLAG)
+```
+#test error rate is 9.5% this is good. 
+
+#Prune to make better
+#start with cv to know the optimum number 
+```{r}
+set.seed(7)
+cv.binary_train <- cv.tree(binary_tree,FUN = prune.misclass)
+names(cv.binary_train)
+cv.binary_train
+
+cv.binary_train$size[which.min(cv.binary_train$dev)]
+
+prune.binary_tree <- prune.misclass(binary_tree, best = 4)
+plot(prune.binary_tree)
+text(prune.binary_tree, pretty = 0)
+summary(prune.binary_tree)
+prune.binary_tree
+```
+#Has 8 terminal nodes, and error rate of 9.783% similar to unpruned tree
+```{r}
+pruned_binary_tree.pred <- predict(prune.binary_tree, binary_test, type = "class")
+table(pruned_binary_tree.pred, binary_test$MRJFLAG)
+```
+# test error rate for the pruned treee is 6.84%
+
+#The pruned tree performs just a bit better than the unpruned tree at predicting if youths use marijuana or not.
+```{r}
+summary(binary_tree)
+summary(prune.binary_tree)
+```
+
+#Problem 2: Multi-Variable Classifiation - Are people with at least one parent (a father) more prone to drug use?
+#Recode response to be categorical responses: yes no and maybe
+```{r}
+df_clean <- df
+
+
+randomforest_train_ind <- sample(1:nrow(df_clean), size= 0.8*nrow(df_clean),replace = FALSE)
+randomforest_train <- df_clean[randomforest_train_ind, ]
+randomforest_test <- df_clean[-randomforest_train_ind, ]
+nrow(randomforest_train)/nrow(df_clean)
+nrow(randomforest_test)/nrow(df_clean)
+
+formula_substance <- as.formula(paste("IFATHER ~", paste(substance_cols, collapse = " + ")))
+
+multi_randomforest <- randomForest(formula_substance, data = randomforest_train, mtry = 5, importance = TRUE)
+multi_randomforest
+```
+# out of bag eror is 29.6 whiich means that 70.4% of your classifications were correct on average
+#Model evaluation
+```{r}
+importance(multi_randomforest)
+varImpPlot(multi_randomforest)
+```
+# From this we see that all almost all the value in the second class(no father) had a strong negative correlation with substance use siggesting that teans who had come in contact woth substances of som sort were less likely to have a father in their life.
+# The strongest predictors  were IRALCFY (Ever drank alcohol in lifetime), IRALCAGE (Age when first drank alcohol),IRCIGAGE (Age first smoked a cigarette) and IRMJFY (Ever used marijuana)
+# A way i could improve this would be removing pedictures that are corelated to reduce data leakage.
+```{r}
+plot(multi_randomforest)
+
+random_forest.predictions <- predict(multi_randomforest, newdata = randomforest_test)
+table(Predicted = random_forest.predictions, Actual = randomforest_test$IFATHER)
+mean(random_forest.predictions == randomforest_test$IFATHER)
+```
+# This model has an overall test accuracy of 71.3% but the model complete ignored the third category(maybe/dont know). I suspect this is due to class imbalance.
+# Im going to try to tune this model by changing the mtry values:
+
+# Mtry = 15
+```{r}
+multi_randomforest1 <- randomForest(formula_substance, data = randomforest_train, mtry = 15, importance = TRUE)
+importance(multi_randomforest1)
+varImpPlot(multi_randomforest1)
+random_forest.predictions1 <- predict(multi_randomforest1, newdata = randomforest_test)
+table(Predicted = random_forest.predictions1, Actual = randomforest_test$IFATHER)
+mean(random_forest.predictions1 == randomforest_test$IFATHER)
+```
+# This model has an accuracy of 70.4% which is worse than the first model with an mtry of 4
+
+#mtry = 10
+```{r}
+multi_randomforest2 <- randomForest(formula_substance, data = randomforest_train, mtry = 10, importance = TRUE)
+importance(multi_randomforest2)
+varImpPlot(multi_randomforest2)
+random_forest.predictions2 <- predict(multi_randomforest2, newdata = randomforest_test)
+table(Predicted = random_forest.predictions2, Actual = randomforest_test$IFATHER)
+mean(random_forest.predictions2 == randomforest_test$IFATHER)
+```
+# This has an accuracy of 70.08% which is sliightly better than the model withh mtry of 15
+
+#mtry = 3
+```{r}
+multi_randomforest3 <- randomForest(formula_substance, data = randomforest_train, mtry = 3, importance = TRUE)
+importance(multi_randomforest3)
+varImpPlot(multi_randomforest3)
+random_forest.predictions3 <- predict(multi_randomforest3, newdata = randomforest_test)
+table(Predicted = random_forest.predictions3, Actual = randomforest_test$IFATHER)
+mean(random_forest.predictions3 == randomforest_test$IFATHER)
+```
+# this has an accuracy of 71.7% This is slightly better than the model with mtry of 5. 
+
+
+# I am also intesested in comparing the performance of this random forest model with a bagging model
+
+# Bagging Model for multi classification problem
+```{r}
+multi_bagging <- randomForest(formula = formula_substance, data = randomforest_train, mtry = ncol(randomforest_train) - 1, ntree = 500)
+multi_bagging_predictions <- predict(multi_bagging, newdata = randomforest_test)
+mean(multi_bagging_predictions == randomforest_test$IFATHER)
+table(Predicted = multi_bagging_predictions, Actual = randomforest_test$IFATHER)
+varImpPlot(multi_bagging)
+```
+#This model has an accuracy of 70.5% which is in the range of values gotten from the random forest models. It performs just as goood as the model with the worst accuracy with mtry of 15 suggesting that for multiclassificaion problems, random forest models might outperform bagging models. This is just based on what I have done so far and could be a completely wrong suggestion.
+
+
+#Problem 3: Regression Problem- Predicting the number of days alcohol was used in the past year
+
+# I would like to build a gradient boosting model and compare it with a bagging model to measure accuracy
+# Target variable is iralcfy' alcohol frequency past year (1-365)
+
+# I will remove variable associate with alchohol use frequency this shoul improve model performance by reducing data leakage
+```{r}
+df_boosting <- na.omit(df_clean)
+df_boosting <- df_boosting[df_boosting$IRALCFY > 0, ]  
+df_boosting $LogIRALCFY <- log(df_boosting $IRALCFY)
+df_boosting 
+
+boosting_train_index <- sample(1:nrow(df_boosting), size = 0.8 * nrow(df_boosting))
+boosting_train <- df_boosting[boosting_train_index, ]
+boosting_test <- df_boosting[-boosting_train_index, ]
+nrow(boosting_train)/nrow(df_boosting)
+nrow(boosting_test)/nrow(df_boosting)
+
+lambdas <- c(0.001, 0.01, 0.05, 0.1, 0.3)
+train_mse <- numeric(length(lambdas))
+
+for (i in 1:length(lambdas)) {
+  boosting_regression <- gbm(IRALCFY ~ . - LogIRALCFY -ALCYDAYS, data = boosting_train, distribution = "gaussian", n.trees = 1000, shrinkage = lambdas[i], verbose = FALSE)
+  boosting_prediction <- predict(boosting_regression , boosting_train, n.trees = 1000)
+  train_mse[i] <- mean((boosting_prediction - boosting_train$IRALCFY)^2)
+}
+summary(boosting_regression)
+mean((boosting_prediction - boosting_train$IRALCFY)^2)
+
+plot(lambdas, train_mse, type = "b",
+     xlab = "Shrinkage (Lambda)", ylab = "Training MSE",
+     main = "Training MSE vs Shrinkage")
+```
+# Lambda value of 0.3 seems to be the best for training error
+
+#Predicting on test data
+```{r}
+lambdas <- c(0.001, 0.01, 0.05, 0.1, 0.3)
+test_mse <- numeric(length(lambdas))
+
+for (i in 1:length(lambdas)) {
+  boosting_pred_test <- predict(boosting_regression, boosting_test, n.trees = 1000)
+  test_mse[i] <- mean((boosting_pred_test - boosting_test$IRALCFY)^2)
+}
+
+plot(lambdas, test_mse, type = "b", lwd = 2, xlab = "Shrinkage (Lambda)", ylab = "Test MSE", main = "Test MSE vs Shrinkage")
+test_mse <- numeric(length(lambdas))
+```
+# for testing error, all lamda values produce very high test mse. There has to be a mistake somewhere.
+
+
+
+
+#Bagging comparison
+
+#bagging_regression <- randomForest(IRALCFY ~ .-LogIRALCFY, data = df_boosting, mtry = ncol(df_boosting) - 2, importance = TRUE)
+#bagging_prediction_regression <- predict(bagging_regression, df_boosting)
+#mean((bagging_prediction_regression - df_bagging$IRALCFY)^2)
+#importance(bagging_regression)
+#varImpPlot(bagging_regression)
+
+
+
+
